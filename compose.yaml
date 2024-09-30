@@ -1,0 +1,30 @@
+version: '3.9'
+services:
+  orders-db:
+    container_name: orders-database
+    image: postgres:16.4-alpine3.20
+    restart: always
+    environment:
+      - POSTGRES_USER=marlon
+      - POSTGRES_PASSWORD=123456
+      - POSTGRES_DB=ordersdb
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    networks:
+      - database
+  manager-db:
+    container_name: manager-postgresql
+    image: rapidfort/pgadmin-ib:8.12
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=fabrisio021@gmail.com
+      - PGADMIN_DEFAULT_PASSWORD=123456
+    ports:
+      - 8080:80
+    depends_on:
+      - orders-db 
+    networks:
+      - database
+volumes:
+  db-data:
+networks:
+  database:
