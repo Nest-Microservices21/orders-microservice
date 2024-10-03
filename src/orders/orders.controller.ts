@@ -1,7 +1,11 @@
-import { Controller } from '@nestjs/common';
+import { Controller, Param } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { PaginationDTO } from 'src/common/dto/pagination.dto';
+import { ParseIdPipe } from './pipe/parseId.pipe';
+import { OrderPaginationDto } from './dto';
+import { PatchOrderDto } from './dto/patch-order.dto';
 
 @Controller()
 export class OrdersController {
@@ -13,17 +17,16 @@ export class OrdersController {
   }
 
   @MessagePattern({ cmd: 'orders.find_all' })
-  findAll() {
-    return this.ordersService.findAll();
+  findAll(@Payload() paginationDTO:OrderPaginationDto) {
+    return this.ordersService.findAll(paginationDTO);
   }
 
   @MessagePattern({ cmd: 'orders.find_one' })
-  findOne(@Payload() id: number) {
+  findOne(@Payload('id',ParseIdPipe) id: number) {
     return this.ordersService.findOne(id);
   }
   @MessagePattern({ cmd: 'orders.change_order_status' })
-  changeOrderStatus(@Payload() payload: { orderId: number; newStatus: string }) {
-    const { orderId, newStatus } = payload;
-    return this.ordersService.changeOrderStatus()
+  changeOrderStatus(@Payload() payload:PatchOrderDto) {
+    return this.ordersService.changeOrderStatus(payload)
   }
 }

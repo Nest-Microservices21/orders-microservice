@@ -10,6 +10,8 @@ services:
       - POSTGRES_DB=ordersdb
     volumes:
       - db-data:/var/lib/postgresql/data
+    ports:
+      - 5432:5432
     networks:
       - database
   manager-db:
