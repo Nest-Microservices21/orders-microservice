@@ -22,7 +22,7 @@ export const orders = pgTable('orders', {
     .$type<number>()
     .notNull(),
   totalItems: integer('total_items').notNull(),
-  status: paymentEnum('status'),
+  status: paymentEnum('status').default('PENDING').notNull(),
   paid: boolean('paid').notNull().default(false),
   paidAt: timestamp('paid_at', { withTimezone: true, precision: 3 }),
   createdAt: timestamp('created_at', { withTimezone: true, precision: 3 })
@@ -33,6 +33,6 @@ export const orders = pgTable('orders', {
     precision: 3,
   }).$onUpdate(() => new Date()),
 });
-// export const ordersRelations = relations(orders, ({ many }) => ({
-//   items: many(orderItems),
-// }));
+export const ordersRelations = relations(orders, ({ many }) => ({
+  items: many(orderItems),
+}));

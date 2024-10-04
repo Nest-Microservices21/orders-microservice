@@ -1,1 +1,0 @@
-ALTER TABLE "orders" ADD COLUMN "total_items" integer NOT NULL;
