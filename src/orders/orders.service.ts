@@ -92,9 +92,20 @@ export class OrdersService {
   }
 
   async findOne(id: number) {
-    const order = await this.db.query.orders.findFirst({
-      where: eq(orders.id, id)
+    const order = await this.db.query.orders.findMany({
+      where: eq(orders.id, id),
+      with: {
+        items: true
+      },
+      columns: {
+        id: true,
+        createdAt: true,
+        paid: true,
+        status: true,
+        totalAmount: true
+      }
     });
+
     if (!order) throw new RpcNotFoundErrorException(`Product with id ${id} not Found`);
     return { data: order };
   }
