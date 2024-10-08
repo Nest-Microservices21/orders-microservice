@@ -3,9 +3,7 @@ import { OrdersService } from './orders.service';
 import { OrdersController } from './orders.controller';
 import { DrizzleModule } from 'src/drizzle/drizzle.module';
 import { APP_PIPE } from '@nestjs/core';
-import { ClientsModule, Transport } from '@nestjs/microservices';
-import { ConfigModule, ConfigService } from '@nestjs/config';
-import productsConfig, { PRODUCTS_SERVICE } from 'src/config/products.config';
+import { NatsModule } from 'src/nats-client/nats.module';
 
 @Module({
   controllers: [OrdersController],
@@ -26,20 +24,7 @@ import productsConfig, { PRODUCTS_SERVICE } from 'src/config/products.config';
   ],
   imports: [
     DrizzleModule,
-    ClientsModule.registerAsync([
-      {
-        name: PRODUCTS_SERVICE,
-        imports: [ConfigModule.forFeature(productsConfig)],
-        inject: [ConfigService],
-        useFactory: (configService: ConfigService) => ({
-          transport: Transport.TCP,
-          options: {
-            host: configService.get<string>('product-ms.host'),
-            port: configService.get<number>('product-ms.port'),
-          },
-        }),
-      },
-    ]),
+    NatsModule
   ],
 })
 export class OrdersModule {}

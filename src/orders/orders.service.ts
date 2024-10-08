@@ -3,25 +3,24 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { DrizzleDB } from 'src/drizzle/types/types';
 import { DRIZZLE } from 'src/drizzle/drizzle.module';
 import { orders } from 'src/drizzle/schema/orders.schema';
-import { asc, count, eq } from 'drizzle-orm';
+import { count, eq } from 'drizzle-orm';
 import { RpcNoContentException, RpcNotFoundErrorException } from 'src/common/exceptions/rpc.exception';
-import { OrderPaginationDto } from './dto';
-import { PatchOrderDto } from './dto/patch-order.dto';
-import { PRODUCTS_SERVICE } from 'src/config/products.config';
+import { OrderPaginationDto,PatchOrderDto } from './dto';
 import { ClientProxy } from '@nestjs/microservices';
 import { firstValueFrom } from 'rxjs';
 import { orderItems } from 'src/drizzle/schema/order-items.schema';
+import { NATS_SERVICE } from 'src/config/nats.config';
 
 @Injectable()
 export class OrdersService {
   constructor(
     @Inject(DRIZZLE) private db: DrizzleDB,
-    @Inject(PRODUCTS_SERVICE) private readonly productsClient: ClientProxy
+    @Inject(NATS_SERVICE) private readonly natsClient: ClientProxy
   ) {}
   async create(createOrderDto: CreateOrderDto) {
     const ids = [...new Set(createOrderDto.items.map(({ productId }) => productId))];
     const validProducts: { id: number; price: number }[] = await firstValueFrom(
-      this.productsClient.send({ cmd: 'product.validate' }, ids)
+      this.natsClient.send({ cmd: 'product.validate' }, ids)
     );
     const idValidProducts = validProducts.map((product) => product.id);
     const invalidProducts = ids.filter((id) => !idValidProducts.includes(id));

@@ -2,15 +2,17 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { Logger } from '@nestjs/common';
 import { Transport, MicroserviceOptions } from '@nestjs/microservices';
+import { envs } from './config/main';
 async function bootstrap() {
   const logger = new Logger('OrdersMS-Main');
+
   const app = await NestFactory.createMicroservice<MicroserviceOptions>(AppModule, {
+    transport: Transport.NATS,
     options: {
-      transport: Transport.TCP,
-      port: Number(process.env.PORT)|| 6000,
+      servers: envs.natsServers
     }
   });
   await app.listen();
-  logger.log(`Microservice is listening on port ${process.env.PORT}`);
+  logger.log(`Microservice is listening `);
 }
 bootstrap();
