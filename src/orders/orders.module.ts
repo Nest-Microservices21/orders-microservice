@@ -4,11 +4,13 @@ import { OrdersController } from './orders.controller';
 import { DrizzleModule } from 'src/drizzle/drizzle.module';
 import { APP_PIPE } from '@nestjs/core';
 import { NatsModule } from 'src/nats-client/nats.module';
+import { OrdersRepository } from './repository/orders.repository';
 
 @Module({
   controllers: [OrdersController],
   providers: [
     OrdersService,
+    OrdersRepository,
     {
       provide: APP_PIPE,
       useValue: new ValidationPipe({

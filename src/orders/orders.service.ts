@@ -1,25 +1,26 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { CreateOrderDto } from './dto/create-order.dto';
-import { DrizzleDB } from 'src/drizzle/types/types';
-import { DRIZZLE } from 'src/drizzle/drizzle.module';
-import { orders } from 'src/drizzle/schema/orders.schema';
-import { count, eq } from 'drizzle-orm';
+import { DRIZZLE, DrizzleDB } from 'src/drizzle';
 import { RpcNoContentException, RpcNotFoundErrorException } from 'src/common/exceptions/rpc.exception';
-import { OrderPaginationDto,PatchOrderDto } from './dto';
+import { OrderPaginationDto, PatchOrderDto } from './dto';
 import { ClientProxy } from '@nestjs/microservices';
 import { firstValueFrom } from 'rxjs';
-import { orderItems } from 'src/drizzle/schema/order-items.schema';
 import { NATS_SERVICE } from 'src/config/nats.config';
+import { OrderWithProducts } from './interfaces/order-with-product';
+import { OrderStatus } from './enums/order.enum';
+import { OrdersRepository } from './repository/orders.repository';
+import { calculateTotals } from './utils/order.utils';
 
 @Injectable()
 export class OrdersService {
   constructor(
     @Inject(DRIZZLE) private db: DrizzleDB,
-    @Inject(NATS_SERVICE) private readonly natsClient: ClientProxy
+    @Inject(NATS_SERVICE) private readonly natsClient: ClientProxy,
+    private readonly ordersRepository: OrdersRepository
   ) {}
-  async create(createOrderDto: CreateOrderDto) {
+  async create(createOrderDto: CreateOrderDto): Promise<OrderWithProducts> {
     const ids = [...new Set(createOrderDto.items.map(({ productId }) => productId))];
-    const validProducts: { id: number; price: number }[] = await firstValueFrom(
+    const validProducts: { id: number; price: number; name: string }[] = await firstValueFrom(
       this.natsClient.send({ cmd: 'product.validate' }, ids)
     );
     const idValidProducts = validProducts.map((product) => product.id);
@@ -28,51 +29,40 @@ export class OrdersService {
       throw new RpcNotFoundErrorException(
         `The following product IDs do not exist ${invalidProducts.join(', ')}`
       );
-    const { totalAmount, totalItems } = createOrderDto.items.reduce(
-      (acc, item) => {
-        const { quantity, productId } = item;
-        const price = validProducts.find((product) => product.id === productId).price;
-        return {
-          totalAmount: acc.totalAmount + price * quantity,
-          totalItems: acc.totalItems + item.quantity
-        };
-      },
-      { totalItems: 0, totalAmount: 0 }
-    );
-    const itemsOrder = createOrderDto.items.map((orderItem) => ({
-      quantity: orderItem.quantity,
-      productId: orderItem.productId,
-      price: validProducts.find((product) => product.id === orderItem.productId).price.toString()
-    }));
-    const result = await this.db.transaction(async (_tx) => {
-      const [{ id: orderId, createdAt, paid, status }] = await this.db
-        .insert(orders)
-        .values({ totalAmount, totalItems })
-        .returning({ id: orders.id, createdAt: orders.createdAt, paid: orders.paid, status: orders.status });
+    const { totalAmount, totalItems, itemsOrder } = calculateTotals(createOrderDto, validProducts);
+
+    const result = await this.db.transaction(async (tx) => {
+      const order = await this.ordersRepository.createOrder(totalAmount, totalItems);
       const items = itemsOrder.map((orderItem) => ({
         ...orderItem,
-        orderId
+        orderId: order.id
       }));
-      await this.db.insert(orderItems).values(items);
-      return { createdAt, paid, status };
+      await this.ordersRepository.insertOrderItems(items);
+      return {
+        createdAt: order.createdAt,
+        paid: order.paid,
+        id: order.id,
+        status: order.status as OrderStatus
+      };
     });
-
-    return { ...result, totalAmount, totalItems, itemsOrder };
+    return {
+      ...result,
+      totalAmount,
+      totalItems,
+      itemsOrder: itemsOrder.map((itemOrder) => ({
+        ...itemOrder,
+        name: validProducts.find((product) => product.id === itemOrder.productId).name
+      }))
+    };
   }
 
   async findAll(paginationDTO: OrderPaginationDto) {
     const { page, limit, status } = paginationDTO;
-    const countTotalOrders = this.db
-      .select({ count: count(orders.id).as('total_orders') })
-      .from(orders)
-      .where(status ? eq(orders.status, status) : undefined);
-    const ordersTotal = this.db.query.orders.findMany({
-      limit,
-      offset: paginationDTO.limit * (paginationDTO.page - 1),
-      where: status ? eq(orders.status, status) : undefined
-    });
-    const [numTotalOrders, allOrders] = await Promise.all([countTotalOrders, ordersTotal]);
-    const totalOrders = numTotalOrders[0].count;
+    const [totalOrders, allOrders] = await Promise.all([
+      this.ordersRepository.countOrders(status),
+      this.ordersRepository.findOrders({ limit, offset: limit * (page - 1), status })
+    ]);
+
     const totalPages = Math.ceil(totalOrders / limit);
 
     return {
@@ -91,33 +81,32 @@ export class OrdersService {
   }
 
   async findOne(id: number) {
-    const order = await this.db.query.orders.findMany({
-      where: eq(orders.id, id),
-      with: {
-        items: true
-      },
-      columns: {
-        id: true,
-        createdAt: true,
-        paid: true,
-        status: true,
-        totalAmount: true
-      }
-    });
-
+    const order = await this.ordersRepository.findOrderById(id);
     if (!order) throw new RpcNotFoundErrorException(`Product with id ${id} not Found`);
     return { data: order };
   }
   async changeOrderStatus(patchOrderDto: PatchOrderDto) {
     const { id: _, ...status } = patchOrderDto;
     if (Object.keys(status).length === 0) throw new RpcNoContentException('');
-    const changeStatus = await this.db
-      .update(orders)
-      .set(status)
-      .where(eq(orders.id, patchOrderDto.id))
-      .returning();
-    return {
-      data: changeStatus
-    };
+    const changeStatus = await this.ordersRepository.updateOrderStatus(patchOrderDto.id, status.status);
+    return { data: changeStatus };
+  }
+
+  async createPaymentSession(order: OrderWithProducts) {
+    const paymentSession = await firstValueFrom(
+      this.natsClient.send(
+        { cmd: 'payments.create_session' },
+        {
+          orderId: order.id,
+          currency: 'usd',
+          items: order.itemsOrder.map((itemOrder) => ({
+            name: itemOrder.name,
+            price: Number(itemOrder.price),
+            quantity: itemOrder.quantity
+          }))
+        }
+      )
+    );
+    return paymentSession;
   }
 }
