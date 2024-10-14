@@ -1,11 +1,8 @@
 import { Controller } from '@nestjs/common';
 import { EventPattern, MessagePattern, Payload } from '@nestjs/microservices';
 import { OrdersService } from './orders.service';
-import { CreateOrderDto } from './dto/create-order.dto';
 import { ParseIdPipe } from './pipe/parseId.pipe';
-import { OrderPaginationDto } from './dto';
-import { PatchOrderDto } from './dto/patch-order.dto';
-import { PaidOrder } from './interfaces/payment';
+import { OrderPaginationDto, PaidOrderDto, PatchOrderDto, CreateOrderDto } from './dto';
 
 @Controller()
 export class OrdersController {
@@ -32,7 +29,7 @@ export class OrdersController {
     return this.ordersService.changeOrderStatus(payload);
   }
   @EventPattern('payments.succedded')
-  async paidOrder(@Payload() paidOrder: PaidOrder) {
-    console.log('AQUIIII', { paidOrder });
+  async paidOrder(@Payload() paidOrder: PaidOrderDto) {
+    return this.ordersService.paidOrder(paidOrder)
   }
 }

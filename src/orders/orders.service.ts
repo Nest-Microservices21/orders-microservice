@@ -1,8 +1,12 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { DRIZZLE, DrizzleDB } from 'src/drizzle';
-import { RpcNoContentException, RpcNotFoundErrorException } from 'src/common/exceptions/rpc.exception';
-import { OrderPaginationDto, PatchOrderDto } from './dto';
+import {
+  RpcBadErrorException,
+  RpcNoContentException,
+  RpcNotFoundErrorException
+} from 'src/common/exceptions/rpc.exception';
+import { OrderPaginationDto, PaidOrderDto, PatchOrderDto } from './dto';
 import { ClientProxy } from '@nestjs/microservices';
 import { firstValueFrom } from 'rxjs';
 import { NATS_SERVICE } from 'src/config/nats.config';
@@ -32,12 +36,12 @@ export class OrdersService {
     const { totalAmount, totalItems, itemsOrder } = calculateTotals(createOrderDto, validProducts);
 
     const result = await this.db.transaction(async (tx) => {
-      const order = await this.ordersRepository.createOrder(totalAmount, totalItems);
+      const order = await this.ordersRepository.createOrder(tx, { totalAmount, totalItems });
       const items = itemsOrder.map((orderItem) => ({
         ...orderItem,
         orderId: order.id
       }));
-      await this.ordersRepository.insertOrderItems(items);
+      await this.ordersRepository.insertOrderItems(tx, items);
       return {
         createdAt: order.createdAt,
         paid: order.paid,
@@ -51,7 +55,7 @@ export class OrdersService {
       totalItems,
       itemsOrder: itemsOrder.map((itemOrder) => ({
         ...itemOrder,
-        name: validProducts.find((product) => product.id === itemOrder.productId).name
+        name: validProducts?.find((product) => product.id === itemOrder.productId).name 
       }))
     };
   }
@@ -88,8 +92,11 @@ export class OrdersService {
   async changeOrderStatus(patchOrderDto: PatchOrderDto) {
     const { id: _, ...status } = patchOrderDto;
     if (Object.keys(status).length === 0) throw new RpcNoContentException('');
+    if (status.status === OrderStatus.PAID)
+      throw new RpcBadErrorException('Cannot set status to PAID via this API');
+
     const changeStatus = await this.ordersRepository.updateOrderStatus(patchOrderDto.id, status.status);
-    return { data: changeStatus };
+    return changeStatus 
   }
 
   async createPaymentSession(order: OrderWithProducts) {
@@ -108,5 +115,9 @@ export class OrdersService {
       )
     );
     return paymentSession;
+  }
+
+  async paidOrder(paidOrder: PaidOrderDto) {
+    return await this.ordersRepository.paidOrder(paidOrder);
   }
 }
